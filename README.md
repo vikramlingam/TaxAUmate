@@ -25,3 +25,8 @@ This script powers the interactive user interface of the TaxAUmate assistant, en
 ## Requirements
 
 This project relies on the following Python packages:
+streamlit
+python-dotenv
+openai
+pinecone
+pymongo
