@@ -93,10 +93,11 @@ def retrieve_context(query: str, pinecone_index_docs: Any, pinecone_index_legis:
         query_embedding = openai_client.embeddings.create(input=[query], model=EMBEDDING_MODEL).data[0].embedding
         
         # --- Query both Pinecone indexes ---
-        logger.info(f"Querying Pinecone index: {pinecone_index_docs.name}")
+        # FIXED: Use the constant index names for logging, not .name attribute
+        logger.info(f"Querying Pinecone index: {PINECONE_INDEX_NAME_DOCS}") 
         results_docs = pinecone_index_docs.query(vector=query_embedding, top_k=TOP_K, include_metadata=False)
         
-        logger.info(f"Querying Pinecone index: {pinecone_index_legis.name}")
+        logger.info(f"Querying Pinecone index: {PINECONE_INDEX_NAME_LEGIS}") # FIXED: Use constant index name
         results_legis = pinecone_index_legis.query(vector=query_embedding, top_k=TOP_K, include_metadata=False)
 
         # --- Combine and sort results ---
