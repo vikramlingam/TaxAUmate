@@ -15,10 +15,17 @@ load_dotenv()
 # --- Application Constants ---
 EMBEDDING_MODEL = "text-embedding-ada-002"
 LLM_MODEL = "gpt-4o-mini"
-PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "ato-legal-database")
-MONGO_COLLECTION_NAME = "documents"
-MONGO_DB_NAME = "ato_data"
-TOP_K = 8
+TOP_K = 8 # Number of top results to retrieve from each Pinecone index
+
+# Pinecone Index Names (from your build scripts)
+PINECONE_INDEX_NAME_DOCS = os.getenv("PINECONE_INDEX_NAME_ATO", "ato-legal-database")
+PINECONE_INDEX_NAME_LEGIS = os.getenv("PINECONE_INDEX_NAME_LEG", "ato-rag-app")
+
+# MongoDB Database and Collection Names
+MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "ato_data")
+MONGO_COLLECTION_NAME_DOCS = os.getenv("MONGO_COLLECTION_NAME_ATO", "documents")
+MONGO_COLLECTION_NAME_LEGIS = os.getenv("MONGO_COLLECTION_NAME_LEG", "legislation")
+
 
 # --- Set up logging ---
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -39,11 +46,12 @@ You are TaxAUmate, an expert AI assistant specializing in Australian Taxation Of
 - Synthesize information from multiple sources in the context to create a cohesive response.
 - **CRITICAL FORMATTING RULE:** Present ALL information, including step-by-step calculations, as standard text, paragraphs, and bullet points. **DO NOT use Markdown code blocks (```) or inline code backticks (`) for any reason.** All text, especially numbers and calculations, must render in the standard user-facing font.
 - **Assume Latest Year:** If a query involves calculations (e.g., tax rates, thresholds) and the user does not specify a financial year, you must assume they are asking about the most recent completed financial year. You should state this assumption in your response (e.g., "Assuming the 2023-2024 financial year...").
-- **Crucially, every piece of information or claim you make must be followed by an inline citation**, like this: (Source: [Title of Document](URL)).
+- **Crucially, every piece of information or claim you make must be followed by an inline citation**, like this: (Source: [Title of Document](URL/Source Identifier)).
 
 **Guideline 3: Citing Sources**
 - At the end of your entire response, include a "Sources" section.
-- List all the unique documents you cited in your response as a bulleted list, with each item formatted as: `[Title of Document](URL)`.
+- List all the unique documents you cited in your response as a bulleted list, with each item formatted as: `[Title of Document](URL/Source Identifier)`.
+- If the source is legislation, use the Source Identifier (e.g., "TR_2012/5") if a URL is not available.
 
 **Workflow:**
 1.  Analyze the user's query.
@@ -95,30 +103,103 @@ def get_openai_client():
 
 def sanitize_response(text: str) -> str:
     """Cleans the AI's response to fix common formatting and concatenation issues."""
-    text = re.sub(r'```[\s\S]*?```', lambda m: m.group(0).replace('```', ''), text)
-    text = text.replace('`', '')
+    # Remove markdown code blocks and backticks
+    text = re.sub(r'```[\s\S]*?```', '', text) # Remove entire code blocks
+    text = text.replace('`', '') # Remove inline code backticks
+
+    # Add space between numbers/commas and letters (e.g., "1000dollars" -> "1000 dollars")
     text = re.sub(r'([,\d]+)([a-zA-Z])', r'\1 \2', text)
+    # Add space between numbers/commas and parentheses (e.g., "100(a)" -> "100 (a)")
     text = re.sub(r'([,\d]+)([\(\)])', r'\1 \2', text)
     return text
 
-def retrieve_context(query: str, pinecone_index: Any, mongo_collection: Any, openai_client: OpenAI) -> Tuple[str, List[Dict[str, Any]]]:
-    """Retrieve relevant context from Pinecone and MongoDB."""
+def retrieve_context(query: str, pinecone_index_docs: Any, pinecone_index_legis: Any, 
+                     mongo_collection_docs: Any, mongo_collection_legis: Any, 
+                     openai_client: OpenAI) -> Tuple[str, List[Dict[str, Any]]]:
+    """Retrieve relevant context from multiple Pinecone indexes and MongoDB collections."""
     if not query: return "", []
+
     try:
         query_embedding = openai_client.embeddings.create(input=[query], model=EMBEDDING_MODEL).data[0].embedding
-        query_results = pinecone_index.query(vector=query_embedding, top_k=TOP_K, include_metadata=False)
-        result_ids = [match['id'] for match in query_results.get('matches', [])]
-        if not result_ids: return "", []
-        mongo_results = list(mongo_collection.find({"_id": {"$in": result_ids}}))
+        
+        # --- Query both Pinecone indexes ---
+        logger.info(f"Querying Pinecone index: {pinecone_index_docs.name}")
+        results_docs = pinecone_index_docs.query(vector=query_embedding, top_k=TOP_K, include_metadata=False)
+        
+        logger.info(f"Querying Pinecone index: {pinecone_index_legis.name}")
+        results_legis = pinecone_index_legis.query(vector=query_embedding, top_k=TOP_K, include_metadata=False)
+
+        # --- Combine and sort results ---
+        combined_matches = []
+        if results_docs and results_docs.get('matches'):
+            for match in results_docs['matches']:
+                match['source_type'] = 'document' # Add a type identifier
+                combined_matches.append(match)
+        if results_legis and results_legis.get('matches'):
+            for match in results_legis['matches']:
+                match['source_type'] = 'legislation' # Add a type identifier
+                combined_matches.append(match)
+        
+        # Sort by score in descending order and take top_k overall
+        combined_matches.sort(key=lambda x: x['score'], reverse=True)
+        
+        # Get unique IDs from the top_k combined matches
+        # Use a set to ensure uniqueness and preserve order as much as possible
+        unique_result_ids = []
+        seen_ids = set()
+        for match in combined_matches:
+            if match['id'] not in seen_ids:
+                unique_result_ids.append({'id': match['id'], 'source_type': match['source_type']})
+                seen_ids.add(match['id'])
+            if len(unique_result_ids) >= TOP_K: # Limit to overall TOP_K
+                break
+
+        if not unique_result_ids: return "", []
+
+        # --- Fetch full text from respective MongoDB collections ---
         formatted_context = ""
         raw_context_for_display = []
-        for doc in mongo_results:
-            title = doc.get('title', 'Untitled')
-            url = doc.get('url', 'No URL available')
-            text_snippet = doc.get('text', 'No text available')
-            formatted_context += f"---\nTitle: {title}\nURL: {url}\nText: {text_snippet}\n---\n\n"
-            raw_context_for_display.append({"title": title, "url": url})
+        
+        # Separate IDs by source type to fetch efficiently
+        doc_ids_to_fetch = [item['id'] for item in unique_result_ids if item['source_type'] == 'document']
+        legis_ids_to_fetch = [item['id'] for item in unique_result_ids if item['source_type'] == 'legislation']
+
+        mongo_results = []
+        if doc_ids_to_fetch:
+            mongo_results.extend(list(mongo_collection_docs.find({"_id": {"$in": doc_ids_to_fetch}})))
+        if legis_ids_to_fetch:
+            mongo_results.extend(list(mongo_collection_legis.find({"_id": {"$in": legis_ids_to_fetch}})))
+
+        # Create a dictionary for faster lookup by _id
+        mongo_docs_map = {doc['_id']: doc for doc in mongo_results}
+
+        # Reconstruct context in order of relevance (from unique_result_ids)
+        for item in unique_result_ids:
+            doc = mongo_docs_map.get(item['id'])
+            if doc:
+                title = doc.get('title', 'Untitled')
+                text_snippet = doc.get('text', 'No text available')
+                
+                # Determine URL/Source Identifier based on type
+                if item['source_type'] == 'document':
+                    url_or_source = doc.get('url', 'No URL available')
+                    source_display_name = "Document"
+                elif item['source_type'] == 'legislation':
+                    url_or_source = doc.get('title', 'No Title') # CHANGED: Use title as the reference for legislation
+                    source_display_name = "Legislation"
+                else:
+                    url_or_source = 'N/A'
+                    source_display_name = "Unknown"
+
+                formatted_context += f"---\nSource Type: {source_display_name}\nTitle: {title}\nLink/ID: {url_or_source}\nText: {text_snippet}\n---\n\n"
+                raw_context_for_display.append({
+                    "title": title,
+                    "link_or_id": url_or_source,
+                    "source_type": source_display_name
+                })
+        
         return formatted_context, raw_context_for_display
+
     except Exception as e:
         logger.error(f"Error during context retrieval: {e}")
         st.warning(f"Error searching the database: {e}")
@@ -127,17 +208,15 @@ def retrieve_context(query: str, pinecone_index: Any, mongo_collection: Any, ope
 
 # --- 5. Streamlit User Interface ---
 def main():
-    # Page config is now cleaner, favicon removed.
     st.set_page_config(
         page_title="TaxAUmate",
         layout="wide",
         initial_sidebar_state="collapsed"
     )
 
-    # CSS has been significantly updated for a more professional look.
     st.markdown("""
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        @import url('[https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap](https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap)');
         
         /* Hide Streamlit's default toolbar */
         [data-testid="stToolbar"] {
@@ -162,63 +241,75 @@ def main():
         
         html, body, [class*="st-"], .stChatMessage p, .stChatMessage li {
             font-family: 'Inter', sans-serif !important;
+            color: #f0f0f0; /* CHANGED: White font color */
         }
-        .stApp { background-color: #f5f7fa; }
+        .stApp { background-color: #1a1a1a; /* CHANGED: Dark background */ }
         .main .block-container { max-width: 850px; padding: 1.5rem 2rem 6rem 2rem; }
         
         h1 {
-            font-size: 2.1rem; /* Slightly smaller H1 */
+            font-size: 2.1rem;
             font-weight: 650;
-            color: #1a2c4e;
+            color: #ffffff; /* CHANGED: White H1 */
         }
         h3 {
-            font-size: 1.0rem; /* Smaller tagline */
+            font-size: 1.0rem;
             font-weight: 350;
-            color: #556177; 
+            color: #cccccc; /* CHANGED: Lighter white for tagline */
         }
         
         .stChatMessage {
-            background-color: #ffffff;
-            border: 1px solid #e6e9f0;
+            background-color: #2a2a2a; /* CHANGED: Darker grey for chat messages */
+            border: 1px solid #444444; /* CHANGED: Darker border */
             border-radius: 12px;
             padding: 16px 20px;
             margin-bottom: 1rem;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.04);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1); /* Adjusted shadow for dark mode */
         }
-        .stChatMessage[data-testid="chat-message-container-user"] { background-color: #eef6ff; }
+        .stChatMessage[data-testid="chat-message-container-user"] { background-color: #3a3a3a; /* CHANGED: Slightly lighter dark grey for user messages */ }
         
         .stChatMessage p, .stChatMessage li, .stChatMessage ol, .stChatMessage ul, .stChatMessage span {
             font-family: 'Inter', sans-serif !important;
-            font-size: 14px; /* Smaller base font size */
+            font-size: 14px;
             line-height: 1.65;
-            color: #333d4f;
+            color: #f0f0f0; /* CHANGED: White text inside chat messages */
         }
         
-        .stChatMessage a { color: #0056b3; text-decoration: none; font-weight: 500; }
+        .stChatMessage a { color: #87ceeb; text-decoration: none; font-weight: 500; } /* CHANGED: Light blue for links */
         .stChatMessage a:hover { text-decoration: underline; }
         
-        .stExpander { border: 1px solid #e6e9f0; border-radius: 10px; background-color: #fafbfd; }
+        .stExpander { 
+            border: 1px solid #444444; /* CHANGED: Darker border */
+            border-radius: 10px; 
+            background-color: #222222; /* CHANGED: Even darker grey for expander */
+        }
         
         .stTextInput > div > div > input {
-            background-color: #ffffff;
+            background-color: #333333; /* CHANGED: Dark input field */
             border-radius: 10px;
-            border: 1px solid #d1d9e4;
+            border: 1px solid #555555; /* CHANGED: Darker border */
             padding: 10px 14px;
+            color: #f0f0f0; /* CHANGED: White text in input */
         }
         .stTextInput > div > div > input:focus {
-            border-color: #0056b3;
-            box-shadow: 0 0 0 2px rgba(0, 86, 179, 0.2);
+            border-color: #87ceeb; /* CHANGED: Light blue focus border */
+            box-shadow: 0 0 0 2px rgba(135, 206, 235, 0.2); /* CHANGED: Light blue shadow */
         }
 
         .welcome-message h4 {
             font-weight: 600;
-            color: #1a2c4e;
+            color: #ffffff; /* CHANGED: White text */
             margin-top: 1rem;
             margin-bottom: 0.75rem;
             font-size: 1rem;
         }
         .welcome-message ul { margin-left: 20px; }
-        .welcome-message p { font-size: 15px; }
+        .welcome-message p { 
+            font-size: 15px; 
+            color: #f0f0f0; /* CHANGED: White text */
+        }
+        .welcome-message hr {
+            border-color: #444444; /* CHANGED: Darker border for HR */
+        }
     </style>
     """, unsafe_allow_html=True)
 
@@ -231,15 +322,22 @@ def main():
         st.stop()
 
     db = mongo_client[MONGO_DB_NAME]
-    mongo_collection = db[MONGO_COLLECTION_NAME]
-    pinecone_index = pinecone_client.Index(PINECONE_INDEX_NAME)
+    
+    # Initialize both MongoDB collections
+    mongo_collection_docs = db[MONGO_COLLECTION_NAME_DOCS]
+    mongo_collection_legis = db[MONGO_COLLECTION_NAME_LEGIS]
+    
+    # Initialize both Pinecone index objects
+    pinecone_index_docs = pinecone_client.Index(PINECONE_INDEX_NAME_DOCS)
+    pinecone_index_legis = pinecone_client.Index(PINECONE_INDEX_NAME_LEGIS)
+
 
     if "messages" not in st.session_state:
         welcome_message = """
         <div class="welcome-message">
             <h4>Important Information:</h4>
             <ul>
-                <li>All data is sourced from official ATO documentation.</li>
+                <li>All data is sourced from official ATO documentation and Australian legal databases.</li>
                 <li>This tool provides only general information and is not to be considered professional tax advice.</li>
                 <li>The LLM used is a general guidance model and hence accuracy may not be perfect.</li>
                 <li>This prototype model has limited features and does not perform accurate calculations yet.</li>
@@ -257,7 +355,6 @@ def main():
         """
         st.session_state.messages = [{"role": "assistant", "content": welcome_message}]
 
-    # Header updated with emoji and new structure.
     st.markdown("""
     <div style="display: flex; align-items: center; margin-bottom: 1.5rem;">
         <div>
@@ -278,12 +375,31 @@ def main():
 
         with st.chat_message("assistant"):
             with st.spinner("Searching the ATO knowledge base..."):
-                context, raw_context = retrieve_context(prompt, pinecone_index, mongo_collection, openai_client)
+                # Pass both Pinecone indexes and MongoDB collections
+                context, raw_context = retrieve_context(
+                    prompt, 
+                    pinecone_index_docs, 
+                    pinecone_index_legis, 
+                    mongo_collection_docs, 
+                    mongo_collection_legis, 
+                    openai_client
+                )
                 if raw_context:
                     with st.expander("Search Details: Reviewing Sources", expanded=False):
                         st.markdown("**Retrieved Sources:**")
+                        # Display sources with their type and appropriate reference (URL or Title)
                         for doc in raw_context:
-                            st.markdown(f"- [{doc.get('title', 'N/A')}]({doc.get('url', 'N/A')})")
+                            if doc.get('source_type') == 'Document':
+                                # For documents, link_or_id is the URL, so make it a clickable link
+                                link_text = f"[{doc.get('title', 'N/A')}]({doc.get('link_or_id', '#')})"
+                            elif doc.get('source_type') == 'Legislation':
+                                # For legislation, link_or_id is the title, so just display the text
+                                link_text = doc.get('link_or_id', 'N/A')
+                            else:
+                                # Fallback for unknown types
+                                link_text = doc.get('title', 'N/A')
+
+                            st.markdown(f"- **{doc.get('source_type', 'Unknown')}:** {link_text}")
                 else:
                     with st.expander("Search Details", expanded=True):
                         st.warning("Could not find any relevant documents in the database for this query.")
@@ -311,9 +427,8 @@ def main():
                     st.error(error_message)
                     st.session_state.messages.append({"role": "assistant", "content": error_message})
 
-    # Footer updated to remove the link.
     st.markdown("""
-    <div style="margin-top: 50px; padding-top: 20px; border-top: 1px solid #e6e9f0; text-align: center; font-size: 12px; color: #6c757d;">
+    <div style="margin-top: 50px; padding-top: 20px; border-top: 1px solid #444444; /* CHANGED: Darker border */ text-align: center; font-size: 12px; color: #cccccc; /* CHANGED: Lighter white */">
         <p>TaxAUmate is an AI assistant for informational purposes and does not constitute professional tax advice.</p>
         <p>© 2025 TaxAUmate</p>
     </div>
