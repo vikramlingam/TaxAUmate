@@ -293,6 +293,8 @@ You are TaxAUmate, an expert AI assistant specializing in Australian Taxation Of
             border: 1px solid #555555; /* Darker border */
             padding: 10px 14px;
             color: #f0f0f0 !important; /* White text in input box */
+            -webkit-text-fill-color: #f0f0f0 !important; /* For Webkit browsers like Chrome */
+            opacity: 1 !important; /* Ensure opacity is 1 */
         }
         .stTextInput > div > div > input:focus {
             border-color: #87ceeb; /* Light blue focus border */
@@ -302,6 +304,29 @@ You are TaxAUmate, an expert AI assistant specializing in Australian Taxation Of
         .stTextInput label {
             color: #f0f0f0 !important;
         }
+
+        /* --- Specific targeting for the chat input container and its children --- */
+        /* This targets the main container for st.chat_input at the bottom */
+        div.st-emotion-cache-1c7y2kl { /* This class name is common for the fixed bottom bar */
+            background-color: #1a1a1a !important; /* Force dark background */
+            padding: 1rem 0 !important; /* Add some padding if desired */
+            color: #f0f0f0 !important; /* Ensure text color is white here too */
+        }
+        /* This targets the internal form/div within the chat input container */
+        div.st-emotion-cache-h5rgjs { /* Another common class for inner chat input form */
+            background-color: #1a1a1a !important; /* Force dark background */
+            color: #f0f0f0 !important; /* Ensure text color is white here too */
+        }
+        /* Targets the text within the chat input placeholder */
+        .stTextInput input::placeholder {
+            color: #aaaaaa !important; /* Lighter grey for placeholder text */
+            opacity: 1 !important; /* Ensure placeholder is visible */
+        }
+        /* Targets the text when actually typing in the input */
+        .stTextInput input {
+            color: #f0f0f0 !important; /* Ensure typed text is white */
+        }
+
 
         .welcome-message h4 {
             font-weight: 600;
@@ -317,14 +342,6 @@ You are TaxAUmate, an expert AI assistant specializing in Australian Taxation Of
         }
         .welcome-message hr {
             border-color: #444444; /* Darker border for HR */
-        }
-        /* Ensure the input area at the bottom also has a dark background */
-        div.st-emotion-cache-1c7y2kl { /* This targets the container holding the chat input */
-            background-color: #1a1a1a; /* Match app background or slightly darker */
-            padding: 1rem 0; /* Add some padding if desired */
-        }
-        .st-emotion-cache-h5rgjs { /* This targets the overall chat input form container */
-            background-color: #1a1a1a; /* Dark background */
         }
     </style>
     """, unsafe_allow_html=True)
