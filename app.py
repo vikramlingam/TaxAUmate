@@ -93,36 +93,34 @@ def retrieve_context(query: str, pinecone_index_docs: Any, pinecone_index_legis:
         query_embedding = openai_client.embeddings.create(input=[query], model=EMBEDDING_MODEL).data[0].embedding
         
         # --- Query both Pinecone indexes ---
-        # FIXED: Use the constant index names for logging, not .name attribute
         logger.info(f"Querying Pinecone index: {PINECONE_INDEX_NAME_DOCS}") 
         results_docs = pinecone_index_docs.query(vector=query_embedding, top_k=TOP_K, include_metadata=False)
         
-        logger.info(f"Querying Pinecone index: {PINECONE_INDEX_NAME_LEGIS}") # FIXED: Use constant index name
+        logger.info(f"Querying Pinecone index: {PINECONE_INDEX_NAME_LEGIS}") 
         results_legis = pinecone_index_legis.query(vector=query_embedding, top_k=TOP_K, include_metadata=False)
 
         # --- Combine and sort results ---
         combined_matches = []
         if results_docs and results_docs.get('matches'):
             for match in results_docs['matches']:
-                match['source_type'] = 'document' # Add a type identifier
+                match['source_type'] = 'document' 
                 combined_matches.append(match)
         if results_legis and results_legis.get('matches'):
             for match in results_legis['matches']:
-                match['source_type'] = 'legislation' # Add a type identifier
+                match['source_type'] = 'legislation' 
                 combined_matches.append(match)
         
         # Sort by score in descending order and take top_k overall
         combined_matches.sort(key=lambda x: x['score'], reverse=True)
         
         # Get unique IDs from the top_k combined matches
-        # Use a set to ensure uniqueness and preserve order as much as possible
         unique_result_ids = []
         seen_ids = set()
         for match in combined_matches:
             if match['id'] not in seen_ids:
                 unique_result_ids.append({'id': match['id'], 'source_type': match['source_type']})
                 seen_ids.add(match['id'])
-            if len(unique_result_ids) >= TOP_K: # Limit to overall TOP_K
+            if len(unique_result_ids) >= TOP_K: 
                 break
 
         if not unique_result_ids: return "", []
@@ -156,7 +154,7 @@ def retrieve_context(query: str, pinecone_index_docs: Any, pinecone_index_legis:
                     url_or_source = doc.get('url', 'No URL available')
                     source_display_name = "Document"
                 elif item['source_type'] == 'legislation':
-                    url_or_source = doc.get('title', 'No Title') # Use title as the reference for legislation
+                    url_or_source = doc.get('title', 'No Title') 
                     source_display_name = "Legislation"
                 else:
                     url_or_source = 'N/A'
@@ -179,7 +177,6 @@ def retrieve_context(query: str, pinecone_index_docs: Any, pinecone_index_legis:
 
 # --- 5. Streamlit User Interface ---
 def main():
-    # --- 2. Enhanced System Prompt (v3) --- MOVED INSIDE MAIN
     SYSTEM_PROMPT = """
 You are TaxAUmate, an expert AI assistant specializing in Australian Taxation Office (ATO) matters and Australian Legal Database. Your primary function is to provide accurate, factual, and helpful information based *only* on the provided context documents. You must operate under the following strict guidelines:
 
@@ -207,7 +204,7 @@ You are TaxAUmate, an expert AI assistant specializing in Australian Taxation Of
 3.  If it's a request for advice or is out-of-scope, provide the disclaimer.
 4.  If it's a valid query, synthesize an answer from the provided context, following all formatting rules and citing sources inline.
 5.  Conclude with a list of all sources used.
-""" # END OF SYSTEM_PROMPT MOVED INSIDE MAIN
+""" 
 
     st.set_page_config(
         page_title="TaxAUmate",
@@ -240,97 +237,96 @@ You are TaxAUmate, an expert AI assistant specializing in Australian Taxation Of
             height: 0%;
         }
         
-        /* Apply Inter font and white color to all general text elements */
+        /* Apply Inter font to all general text elements */
         html, body, [class*="st-"], .stChatMessage p, .stChatMessage li, .stChatMessage ol, .stChatMessage ul, .stChatMessage span {
             font-family: 'Inter', sans-serif !important;
-            color: #f0f0f0 !important; /* White font color for general text */
+            color: #333333; /* Default Streamlit text color is usually dark */
         }
         
-        .stApp { background-color: #1a1a1a; /* Dark background for the entire app */ }
+        /* Remove explicit background colors to revert to Streamlit defaults */
+        .stApp { background-color: initial; } /* Revert to default */
         .main .block-container { max-width: 850px; padding: 1.5rem 2rem 6rem 2rem; }
         
         h1 {
             font-size: 2.1rem;
             font-weight: 650;
-            color: #ffffff; /* White H1 */
+            color: #333333; /* Dark H1 */
         }
         h3 {
             font-size: 1.0rem;
             font-weight: 350;
-            color: #cccccc; /* Lighter white for tagline */
+            color: #555555; /* Slightly lighter dark for tagline */
         }
         
         .stChatMessage {
-            background-color: #2a2a2a; /* Darker grey for chat messages */
-            border: 1px solid #444444; /* Darker border */
+            background-color: #f0f2f6; /* Streamlit default light grey for messages */
+            border: 1px solid #e0e0e0; /* Lighter border */
             border-radius: 12px;
             padding: 16px 20px;
             margin-bottom: 1rem;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1); /* Adjusted shadow for dark mode */
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05); /* Lighter shadow */
         }
         .stChatMessage[data-testid="chat-message-container-user"] { 
-            background-color: #3a3a3a; /* Slightly lighter dark grey for user messages */ 
+            background-color: #e6f0fa; /* Streamlit default light blue for user messages */ 
         }
         
-        /* Ensure text inside chat messages is white */
+        /* Ensure text inside chat messages is dark */
         .stChatMessage p, .stChatMessage li {
-            color: #f0f0f0 !important; 
+            color: #333333 !important; 
         }
         
-        .stChatMessage a { color: #87ceeb; text-decoration: none; font-weight: 500; } /* Light blue for links */
+        .stChatMessage a { color: #007bff; text-decoration: none; font-weight: 500; } /* Standard blue for links */
         .stChatMessage a:hover { text-decoration: underline; }
         
         .stExpander { 
-            border: 1px solid #444444; /* Darker border */
+            border: 1px solid #e0e0e0; /* Lighter border */
             border-radius: 10px; 
-            background-color: #222222; /* Even darker grey for expander */
+            background-color: #f8f9fa; /* Light background for expander */
         }
         
         /* Targeting the actual input field for the chat box */
         .stTextInput > div > div > input {
-            background-color: #333333; /* Dark input field background */
+            background-color: #ffffff; /* White input field background */
             border-radius: 10px;
-            border: 1px solid #555555; /* Darker border */
+            border: 1px solid #ced4da; /* Light grey border */
             padding: 10px 14px;
-            color: #f0f0f0 !important; /* White text in input box */
-            -webkit-text-fill-color: #f0f0f0 !important; /* For Webkit browsers like Chrome */
+            color: #333333 !important; /* IMPORTANT: Dark text in input box */
+            -webkit-text-fill-color: #333333 !important; /* For Webkit browsers like Chrome */
             opacity: 1 !important; /* Ensure opacity is 1 */
         }
         .stTextInput > div > div > input:focus {
-            border-color: #87ceeb; /* Light blue focus border */
-            box-shadow: 0 0 0 2px rgba(135, 206, 235, 0.2); /* Light blue shadow */
+            border-color: #007bff; /* Blue focus border */
+            box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25); /* Blue shadow */
         }
-        /* Ensure the label above the input also has white text if visible */
+        /* Ensure the label above the input also has dark text if visible */
         .stTextInput label {
-            color: #f0f0f0 !important;
+            color: #333333 !important;
         }
 
         /* --- Specific targeting for the chat input container and its children --- */
-        /* This targets the main container for st.chat_input at the bottom */
-        div.st-emotion-cache-1c7y2kl { /* This class name is common for the fixed bottom bar */
-            background-color: #1a1a1a !important; /* Force dark background */
-            padding: 1rem 0 !important; /* Add some padding if desired */
-            color: #f0f0f0 !important; /* Ensure text color is white here too */
+        /* These should now revert to default Streamlit background colors */
+        div.st-emotion-cache-1c7y2kl { 
+            background-color: initial !important; /* Revert to default */
+            color: #333333 !important; /* Ensure text color is dark here too */
         }
-        /* This targets the internal form/div within the chat input container */
-        div.st-emotion-cache-h5rgjs { /* Another common class for inner chat input form */
-            background-color: #1a1a1a !important; /* Force dark background */
-            color: #f0f0f0 !important; /* Ensure text color is white here too */
+        div.st-emotion-cache-h5rgjs { 
+            background-color: initial !important; /* Revert to default */
+            color: #333333 !important; /* Ensure text color is dark here too */
         }
         /* Targets the text within the chat input placeholder */
         .stTextInput input::placeholder {
-            color: #aaaaaa !important; /* Lighter grey for placeholder text */
+            color: #6c757d !important; /* Medium grey for placeholder text */
             opacity: 1 !important; /* Ensure placeholder is visible */
         }
         /* Targets the text when actually typing in the input */
         .stTextInput input {
-            color: #f0f0f0 !important; /* Ensure typed text is white */
+            color: #333333 !important; /* Ensure typed text is dark */
         }
 
 
         .welcome-message h4 {
             font-weight: 600;
-            color: #ffffff; /* White text */
+            color: #333333; /* Dark text */
             margin-top: 1rem;
             margin-bottom: 0.75rem;
             font-size: 1rem;
@@ -338,10 +334,10 @@ You are TaxAUmate, an expert AI assistant specializing in Australian Taxation Of
         .welcome-message ul { margin-left: 20px; }
         .welcome-message p { 
             font-size: 15px; 
-            color: #f0f0f0; /* White text */
+            color: #333333; /* Dark text */
         }
         .welcome-message hr {
-            border-color: #444444; /* Darker border for HR */
+            border-color: #e0e0e0; /* Lighter border for HR */
         }
     </style>
     """, unsafe_allow_html=True)
@@ -382,7 +378,7 @@ You are TaxAUmate, an expert AI assistant specializing in Australian Taxation Of
                 <li>What is the fixed ratio test within thin capitalization rules, and what are its key components?</li>
                 <li>What happens if a company does not lodge a tax return on time?</li>
             </ul>
-            <hr style="margin-top: 20px; margin-bottom: 20px; border-color: #444444;">
+            <hr style="margin-top: 20px; margin-bottom: 20px; border-color: #e0e0e0;">
             <p>How can I help you today?</p>
         </div>
         """
@@ -408,7 +404,6 @@ You are TaxAUmate, an expert AI assistant specializing in Australian Taxation Of
 
         with st.chat_message("assistant"):
             with st.spinner("Searching the ATO knowledge base..."):
-                # Pass both Pinecone indexes and MongoDB collections
                 context, raw_context = retrieve_context(
                     prompt, 
                     pinecone_index_docs, 
@@ -420,16 +415,12 @@ You are TaxAUmate, an expert AI assistant specializing in Australian Taxation Of
                 if raw_context:
                     with st.expander("Search Details: Reviewing Sources", expanded=False):
                         st.markdown("**Retrieved Sources:**")
-                        # Display sources with their type and appropriate reference (URL or Title)
                         for doc in raw_context:
                             if doc.get('source_type') == 'Document':
-                                # For documents, link_or_id is the URL, so make it a clickable link
                                 link_text = f"[{doc.get('title', 'N/A')}]({doc.get('link_or_id', '#')})"
                             elif doc.get('source_type') == 'Legislation':
-                                # For legislation, link_or_id is the title, so just display the text
                                 link_text = doc.get('link_or_id', 'N/A')
                             else:
-                                # Fallback for unknown types
                                 link_text = doc.get('title', 'N/A')
 
                             st.markdown(f"- **{doc.get('source_type', 'Unknown')}:** {link_text}")
@@ -439,7 +430,6 @@ You are TaxAUmate, an expert AI assistant specializing in Australian Taxation Of
 
             with st.spinner("Synthesizing information and generating response..."):
                 try:
-                    # Use the SYSTEM_PROMPT defined within main()
                     messages_for_api = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": f"CONTEXT:\n{context}\n\nQUESTION:\n{prompt}"}]
                     stream = openai_client.chat.completions.create(model=LLM_MODEL, messages=messages_for_api, temperature=0.1, stream=True)
                     
@@ -462,7 +452,7 @@ You are TaxAUmate, an expert AI assistant specializing in Australian Taxation Of
                     st.session_state.messages.append({"role": "assistant", "content": error_message})
 
     st.markdown("""
-    <div style="margin-top: 50px; padding-top: 20px; border-top: 1px solid #444444; text-align: center; font-size: 12px; color: #cccccc;">
+    <div style="margin-top: 50px; padding-top: 20px; border-top: 1px solid #e0e0e0; text-align: center; font-size: 12px; color: #6c757d;">
         <p>TaxAUmate is an AI assistant for informational purposes and does not constitute professional tax advice.</p>
         <p>© 2025 TaxAUmate</p>
     </div>
