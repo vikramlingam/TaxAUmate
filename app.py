@@ -240,65 +240,72 @@ You are TaxAUmate, an expert AI assistant specializing in Australian Taxation Of
             height: 0%;
         }
         
-        html, body, [class*="st-"], .stChatMessage p, .stChatMessage li {
+        /* Apply Inter font and white color to all general text elements */
+        html, body, [class*="st-"], .stChatMessage p, .stChatMessage li, .stChatMessage ol, .stChatMessage ul, .stChatMessage span {
             font-family: 'Inter', sans-serif !important;
-            color: #f0f0f0; /* CHANGED: White font color */
+            color: #f0f0f0 !important; /* White font color for general text */
         }
-        .stApp { background-color: #1a1a1a; /* CHANGED: Dark background */ }
+        
+        .stApp { background-color: #1a1a1a; /* Dark background for the entire app */ }
         .main .block-container { max-width: 850px; padding: 1.5rem 2rem 6rem 2rem; }
         
         h1 {
             font-size: 2.1rem;
             font-weight: 650;
-            color: #ffffff; /* CHANGED: White H1 */
+            color: #ffffff; /* White H1 */
         }
         h3 {
             font-size: 1.0rem;
             font-weight: 350;
-            color: #cccccc; /* CHANGED: Lighter white for tagline */
+            color: #cccccc; /* Lighter white for tagline */
         }
         
         .stChatMessage {
-            background-color: #2a2a2a; /* CHANGED: Darker grey for chat messages */
-            border: 1px solid #444444; /* CHANGED: Darker border */
+            background-color: #2a2a2a; /* Darker grey for chat messages */
+            border: 1px solid #444444; /* Darker border */
             border-radius: 12px;
             padding: 16px 20px;
             margin-bottom: 1rem;
             box-shadow: 0 4px 12px rgba(0,0,0,0.1); /* Adjusted shadow for dark mode */
         }
-        .stChatMessage[data-testid="chat-message-container-user"] { background-color: #3a3a3a; /* CHANGED: Slightly lighter dark grey for user messages */ }
-        
-        .stChatMessage p, .stChatMessage li, .stChatMessage ol, .stChatMessage ul, .stChatMessage span {
-            font-family: 'Inter', sans-serif !important;
-            font-size: 14px;
-            line-height: 1.65;
-            color: #f0f0f0; /* CHANGED: White text inside chat messages */
+        .stChatMessage[data-testid="chat-message-container-user"] { 
+            background-color: #3a3a3a; /* Slightly lighter dark grey for user messages */ 
         }
         
-        .stChatMessage a { color: #87ceeb; text-decoration: none; font-weight: 500; } /* CHANGED: Light blue for links */
+        /* Ensure text inside chat messages is white */
+        .stChatMessage p, .stChatMessage li {
+            color: #f0f0f0 !important; 
+        }
+        
+        .stChatMessage a { color: #87ceeb; text-decoration: none; font-weight: 500; } /* Light blue for links */
         .stChatMessage a:hover { text-decoration: underline; }
         
         .stExpander { 
-            border: 1px solid #444444; /* CHANGED: Darker border */
+            border: 1px solid #444444; /* Darker border */
             border-radius: 10px; 
-            background-color: #222222; /* CHANGED: Even darker grey for expander */
+            background-color: #222222; /* Even darker grey for expander */
         }
         
+        /* Targeting the actual input field for the chat box */
         .stTextInput > div > div > input {
-            background-color: #333333; /* CHANGED: Dark input field */
+            background-color: #333333; /* Dark input field background */
             border-radius: 10px;
-            border: 1px solid #555555; /* CHANGED: Darker border */
+            border: 1px solid #555555; /* Darker border */
             padding: 10px 14px;
-            color: #f0f0f0; /* CHANGED: White text in input */
+            color: #f0f0f0 !important; /* White text in input box */
         }
         .stTextInput > div > div > input:focus {
-            border-color: #87ceeb; /* CHANGED: Light blue focus border */
-            box-shadow: 0 0 0 2px rgba(135, 206, 235, 0.2); /* CHANGED: Light blue shadow */
+            border-color: #87ceeb; /* Light blue focus border */
+            box-shadow: 0 0 0 2px rgba(135, 206, 235, 0.2); /* Light blue shadow */
+        }
+        /* Ensure the label above the input also has white text if visible */
+        .stTextInput label {
+            color: #f0f0f0 !important;
         }
 
         .welcome-message h4 {
             font-weight: 600;
-            color: #ffffff; /* CHANGED: White text */
+            color: #ffffff; /* White text */
             margin-top: 1rem;
             margin-bottom: 0.75rem;
             font-size: 1rem;
@@ -306,10 +313,18 @@ You are TaxAUmate, an expert AI assistant specializing in Australian Taxation Of
         .welcome-message ul { margin-left: 20px; }
         .welcome-message p { 
             font-size: 15px; 
-            color: #f0f0f0; /* CHANGED: White text */
+            color: #f0f0f0; /* White text */
         }
         .welcome-message hr {
-            border-color: #444444; /* CHANGED: Darker border for HR */
+            border-color: #444444; /* Darker border for HR */
+        }
+        /* Ensure the input area at the bottom also has a dark background */
+        div.st-emotion-cache-1c7y2kl { /* This targets the container holding the chat input */
+            background-color: #1a1a1a; /* Match app background or slightly darker */
+            padding: 1rem 0; /* Add some padding if desired */
+        }
+        .st-emotion-cache-h5rgjs { /* This targets the overall chat input form container */
+            background-color: #1a1a1a; /* Dark background */
         }
     </style>
     """, unsafe_allow_html=True)
@@ -350,7 +365,7 @@ You are TaxAUmate, an expert AI assistant specializing in Australian Taxation Of
                 <li>What is the fixed ratio test within thin capitalization rules, and what are its key components?</li>
                 <li>What happens if a company does not lodge a tax return on time?</li>
             </ul>
-            <hr style="margin-top: 20px; margin-bottom: 20px; border-color: #e6e9f0;">
+            <hr style="margin-top: 20px; margin-bottom: 20px; border-color: #444444;">
             <p>How can I help you today?</p>
         </div>
         """
@@ -430,7 +445,7 @@ You are TaxAUmate, an expert AI assistant specializing in Australian Taxation Of
                     st.session_state.messages.append({"role": "assistant", "content": error_message})
 
     st.markdown("""
-    <div style="margin-top: 50px; padding-top: 20px; border-top: 1px solid #444444; /* CHANGED: Darker border */ text-align: center; font-size: 12px; color: #cccccc; /* CHANGED: Lighter white */">
+    <div style="margin-top: 50px; padding-top: 20px; border-top: 1px solid #444444; text-align: center; font-size: 12px; color: #cccccc;">
         <p>TaxAUmate is an AI assistant for informational purposes and does not constitute professional tax advice.</p>
         <p>© 2025 TaxAUmate</p>
     </div>
